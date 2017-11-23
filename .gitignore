@@ -1,1 +1,5 @@
 .idea
+.exe
+*.test.exe
+*.test
+*.out
