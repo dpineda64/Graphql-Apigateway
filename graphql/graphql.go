@@ -55,9 +55,11 @@ func (h *Helper) analyzeServices(Services map[string]services.Service) (query, m
 		for _, endpoint := range service.ParsedEndpoints{
 			field, fieldName := h.BuildObject(service.Name, endpoint)
 			if endpoint.Type == "mutation" {
+				fieldName = strings.TrimPrefix(fieldName, "M")
 				mutations[fieldName] = field
+			} else {
+				queries[fieldName] = field
 			}
-			queries[fieldName] = field
 		}
 	}
 
