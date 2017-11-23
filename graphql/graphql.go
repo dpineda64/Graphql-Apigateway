@@ -5,9 +5,12 @@ import (
 	"strings"
 	"github.com/graphql-go/graphql"
 	"github.com/dpineda64/graphql-gateway/services"
+	"github.com/micro/go-micro/errors"
 )
 
-type Helper struct {}
+type Helper struct {
+	fields []*graphql.Field
+}
 
 // TODO: improve go - graphql types
 var typesMapping = map[string]graphql.Type{
@@ -21,11 +24,11 @@ var Services = new(services.ServiceHelper)
 func (h *Helper) BuildSchema() graphql.Schema {
 	Services.FindServices()
 
-	fields, _ := h.analyzeServices(Services.Services)
+	queryFields := h.analyzeServices(Services.Services)
 
 	rootQuery := graphql.ObjectConfig{
 		Name: "RootQuery",
-		Fields: fields,
+		Fields: queryFields,
 	}
 
 	schemaConfig := graphql.SchemaConfig{Query: graphql.NewObject(rootQuery)}
@@ -33,61 +36,85 @@ func (h *Helper) BuildSchema() graphql.Schema {
 	schema, err := graphql.NewSchema(schemaConfig)
 
 	if err != nil {
-		fmt.Printf("\n SCHEMA BUILD ERROR: %s", err)
+		fmt.Printf("Error: %e", errors.New("SERVICES_NOT_FOUND", err.Error(), 404))
 	}
 
 	return schema
 }
 // Analyze Services
-func (h *Helper) analyzeServices(Services map[string]services.Service) (graphql.Fields, string)  {
+func (h *Helper) analyzeServices(Services map[string]services.Service) graphql.Fields  {
 	var fields = graphql.Fields{}
-	var name string
 	for _, service := range Services {
 		for _, endpoint := range service.ParsedEndpoints{
-			name = strings.Replace(service.Name, ".", "_", -1)
 			field, fieldName := h.BuildObject(service.Name, endpoint)
 			fields[fieldName] = field
 		}
 	}
+	h.purifyFields(fields)
 
-	return fields, name
+	return fields
+}
+
+// "Purify" schema fields from duplicated objects
+func (h *Helper) purifyFields(fields graphql.Fields) graphql.Fields {
+	unique := make(graphql.Fields, len(h.fields))
+	ref := make(map[string]bool, len(h.fields))
+
+	for _, field := range h.fields {
+		if field.Type.Description() == "" {
+			if _, ok := ref[field.Name]; !ok {
+				ref[field.Name] = true
+				unique[field.Name] = field
+			}
+		}
+	}
+
+	return nil
 }
 
 // Build Graphql Object
 
 func (h *Helper) BuildObject(serviceName string, endpoint services.Endpoint) (*graphql.Field, string){
-	var fieldMap = make(graphql.Fields)
 	var name = strings.Replace(endpoint.Name, ".", "_", -1)
-	// Start endpoint object
-	endpointType := graphql.ObjectConfig{
-		Name: name,
-		Fields: graphql.Fields{},
-	}
+	endpointType := graphql.ObjectConfig{}
 	// Start endpoint field
 	var endpointField = &graphql.Field{
 		Description: name,
 		Args:graphql.FieldConfigArgument{},
 	}
 
+	if len(endpoint.ResponseFields) > 1 {
+		var fieldMap = make(graphql.Fields)
+		endpointType.Name = name
+		endpointType.Fields = graphql.Fields{}
+		// Build endpointType fields
+		for _, responseArg := range endpoint.ResponseFields{
+			var field = &graphql.Field{
+				Name: responseArg.Name,
+				Type:getFieldType(responseArg),
+			}
+
+			fieldMap[responseArg.Name] = field
+			h.fields = append(h.fields, field)
+		}
+
+		// Set endpoint fields
+		endpointType.Fields = fieldMap
+		// Set endpoint field type
+		endpointField.Type = graphql.NewObject(endpointType)
+	} else {
+		endpointField.Type = getFieldType(endpoint.ResponseFields[0])
+	}
+
+	// Start endpoint object
+
 	// Build request Params
 	for _, requestArg := range endpoint.RequestFields{
 		endpointField.Args[requestArg.Name] = &graphql.ArgumentConfig{
-			Type: getFieldType(requestArg.Type),
+			Type: getFieldType(requestArg),
 		}
 	}
 
-	// Build endpointType fields
-	for _, responseArg := range endpoint.ResponseFields{
-		fieldMap[responseArg.Name] = &graphql.Field{
-			Name: responseArg.Name,
-			Type:getFieldType(responseArg.Type),
-		}
-	}
-
-	// Set endpoint fields
-	endpointType.Fields = fieldMap
-	// Set endpoint field type
-	endpointField.Type = graphql.NewObject(endpointType)
 	// Set endpoint field resolver
 	// Call to service endpoint and returns an interface equal to endpointType.Fields
 	endpointField.Resolve = func(p graphql.ResolveParams) (interface{}, error) {
@@ -104,10 +131,32 @@ func (h *Helper) BuildObject(serviceName string, endpoint services.Endpoint) (*g
 
 // Find field type
 
-func getFieldType(fieldType string) graphql.Type {
-	j := typesMapping[fmt.Sprintf(fieldType)]
-	if j == nil {
+func getFieldType(fieldType services.Field) graphql.Type {
+	j := typesMapping[fmt.Sprintf(fieldType.Type)]
+	if j == nil && len(fieldType.SubFields) > 0 {
+		var fieldMap = make(graphql.Fields)
+		var fieldObject = graphql.ObjectConfig{
+			Name: strings.Title(fieldType.Name),
+		}
+
+		for _, subField := range fieldType.SubFields {
+			fieldMap[subField.Name] = &graphql.Field{
+				Name: subField.Name,
+				Type: getFieldType(subField),
+			}
+
+		}
+		fieldObject.Fields = fieldMap
+
+		field := graphql.NewObject(fieldObject)
+		typesMapping[field.Name()] = field
+		return field
+	}
+
+	if j == nil && len(fieldType.SubFields) == 0 {
+		fmt.Println("HERE", fieldType.Type)
 		return nil
 	}
+
 	return j
 }
