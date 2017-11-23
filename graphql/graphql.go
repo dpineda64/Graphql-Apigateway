@@ -50,26 +50,8 @@ func (h *Helper) analyzeServices(Services map[string]services.Service) graphql.F
 			fields[fieldName] = field
 		}
 	}
-	h.purifyFields(fields)
 
 	return fields
-}
-
-// "Purify" schema fields from duplicated objects
-func (h *Helper) purifyFields(fields graphql.Fields) graphql.Fields {
-	unique := make(graphql.Fields, len(h.fields))
-	ref := make(map[string]bool, len(h.fields))
-
-	for _, field := range h.fields {
-		if field.Type.Description() == "" {
-			if _, ok := ref[field.Name]; !ok {
-				ref[field.Name] = true
-				unique[field.Name] = field
-			}
-		}
-	}
-
-	return nil
 }
 
 // Build Graphql Object
@@ -154,7 +136,6 @@ func getFieldType(fieldType services.Field) graphql.Type {
 	}
 
 	if j == nil && len(fieldType.SubFields) == 0 {
-		fmt.Println("HERE", fieldType.Type)
 		return nil
 	}
 
