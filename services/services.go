@@ -86,6 +86,9 @@ func (s *ServiceHelper) FindServices() error {
 				RequestFields: []Field{},
 				ResponseFields: []Field{},
 			}
+			if isMutation := strings.HasPrefix(name[1], "M"); isMutation {
+				parsed.Type = "mutation"
+			}
 			requestFields := s.buildFields(endpoint.Request.Values, false)
 			responseFields := s.buildFields(endpoint.Response.Values, false)
 			parsed.RequestFields = requestFields

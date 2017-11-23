@@ -24,14 +24,19 @@ var Services = new(services.ServiceHelper)
 func (h *Helper) BuildSchema() graphql.Schema {
 	Services.FindServices()
 
-	queryFields := h.analyzeServices(Services.Services)
+	query, mutation := h.analyzeServices(Services.Services)
 
 	rootQuery := graphql.ObjectConfig{
 		Name: "RootQuery",
-		Fields: queryFields,
+		Fields: query,
 	}
 
-	schemaConfig := graphql.SchemaConfig{Query: graphql.NewObject(rootQuery)}
+	rootMutation := graphql.ObjectConfig{
+		Name: "RootMutation",
+		Fields: mutation,
+	}
+
+	schemaConfig := graphql.SchemaConfig{Query: graphql.NewObject(rootQuery), Mutation: graphql.NewObject(rootMutation)}
 
 	schema, err := graphql.NewSchema(schemaConfig)
 
@@ -42,16 +47,21 @@ func (h *Helper) BuildSchema() graphql.Schema {
 	return schema
 }
 // Analyze Services
-func (h *Helper) analyzeServices(Services map[string]services.Service) graphql.Fields  {
-	var fields = graphql.Fields{}
+func (h *Helper) analyzeServices(Services map[string]services.Service) (query, mutation graphql.Fields)  {
+	var queries = graphql.Fields{}
+	var mutations = graphql.Fields{}
+
 	for _, service := range Services {
 		for _, endpoint := range service.ParsedEndpoints{
 			field, fieldName := h.BuildObject(service.Name, endpoint)
-			fields[fieldName] = field
+			if endpoint.Type == "mutation" {
+				mutations[fieldName] = field
+			}
+			queries[fieldName] = field
 		}
 	}
 
-	return fields
+	return queries, mutations
 }
 
 // Build Graphql Object
@@ -114,8 +124,8 @@ func (h *Helper) BuildObject(serviceName string, endpoint services.Endpoint) (*g
 // Find field type
 
 func getFieldType(fieldType services.Field) graphql.Type {
-	j := typesMapping[fmt.Sprintf(fieldType.Type)]
-	if j == nil && len(fieldType.SubFields) > 0 {
+	field := typesMapping[fmt.Sprintf(fieldType.Type)]
+	if field == nil && len(fieldType.SubFields) > 0 {
 		var fieldMap = make(graphql.Fields)
 		var fieldObject = graphql.ObjectConfig{
 			Name: strings.Title(fieldType.Name),
@@ -135,9 +145,9 @@ func getFieldType(fieldType services.Field) graphql.Type {
 		return field
 	}
 
-	if j == nil && len(fieldType.SubFields) == 0 {
+	if field == nil && len(fieldType.SubFields) == 0 {
 		return nil
 	}
 
-	return j
+	return field
 }
